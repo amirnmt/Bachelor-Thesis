@@ -1,0 +1,148 @@
+# -*- coding: utf-8 -*-
+
+"""
+Creating machine learning model of Ethylene oxide reactor using ANN algorithm.
+
+"""
+
+#%% Import libraries
+
+import tensorflow as tf
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+
+
+#%% Preparing and preprocessing the data
+
+# Read in the Data dataset
+data = pd.read_csv('certain location')
+
+# Create F = Features & L = Labels
+F = data.drop(['C2H4_Molarflow (kmol/s)',
+               'O2_Molarflow (kmol/s)',
+               'C2H4O_Molarflow (kmol/s)',
+               'CO2_Molarflow (kmol/s)',
+               'H2O_Molarflow (kmol/s)'], axis=1)  
+
+# F contains Temperature(K), Pressure(Mpas), Molarflow of compositions(Kmole/s), Reactor Volume(m^3), Reactor Length from 0 to L
+
+
+L = data[['C2H4_Molarflow (kmol/s)',
+          'O2_Molarflow (kmol/s)',
+          'C2H4O_Molarflow (kmol/s)',
+          'CO2_Molarflown (kmol/s)',
+          'H2O_Molarflow (kmol/s)']]             
+
+# Build train and test sets 
+X_train, X_test, y_train, y_test = train_test_split(F, L, test_size=0.2, random_state=42) # set random state for reproducible splits   
+
+# Scaling data (Standard Scaling)
+scalar = MinMaxScaler()        # Get all values between 0 and 1
+
+# getin the values of DataFrame
+y_train = y_train.values
+y_test = y_test.values
+ 
+# Transform training and test data with normalization
+X_train_normal = scalar.fit_transform(X_train)
+X_test_normal = scalar.fit_transform(X_test)
+y_train_normal = scalar.fit_transform(y_train)
+y_test_normal = scalar.fit_transform(y_test)
+
+#%% Building a Sequential Model 
+
+# Set random seed
+tf.random.set_seed(42)
+
+# Build the sequntial model (4 layers, 256, 128, 64, 5)
+EO_Oxidation_model = tf.keras.Sequential([
+  tf.keras.layers.Dense(256, activation = 'relu'),
+  tf.keras.layers.Dense(128, activation = 'relu'),
+  tf.keras.layers.Dense(64, activation = 'relu'),
+  tf.keras.layers.Dense(5)
+])
+
+# Compile the model
+EO_Oxidation_model.compile(loss=tf.keras.losses.mse,
+                          optimizer=tf.keras.optimizers.Adam(),
+                          metrics=['accuracy'])
+
+# Fit the model for n epochs 
+loss=[]
+loss_vall=[]
+Acc=[]
+Acc_val=[]
+n = 0
+
+while True:
+
+    history = EO_Oxidation_model.fit(X_train_normal, y_train_normal,
+                                     validation_data = (X_test_normal, y_test_normal),
+                                     batch_size = 1000,
+                                     verbose = 0) 
+    
+
+    #get the prediction data from the model
+    y_pred = EO_Oxidation_model.predict(X_test_normal)
+
+    loss_train = history.history['loss']
+    loss_val = history.history['val_loss']
+    accuracy_train = history.history['accuracy']
+    accuracy_val = history.history['val_accuracy']
+
+
+    print ('epochs = ', n)
+    print ('loss = ', loss_train[0])
+    print ('valid_loss = ', loss_val[0])
+    print ('accuracy = ', accuracy_train[0])
+    print ('valid_accuracy = ', accuracy_val[0])
+    print ('=========================================')
+    
+
+    loss.append(loss_train[0])
+    loss_vall.append(loss_val[0])
+    Acc.append(accuracy_train)
+    Acc_val.append(accuracy_val)
+    n = n + 1    
+    
+    if  loss_train[0] < 1E-5 and accuracy_train[0] >= 0.990:
+        break
+    
+
+# summary of the model
+EO_Oxidation_model.summary()
+
+
+#%% ploting
+
+# plotng the loss function and Accuracies
+
+# loss values plot
+plt.plot(loss,'b')
+plt.plot(loss_vall,'r')
+plt.title('loss per epochs')
+plt.xlabel('number of epochs')
+plt.ylabel('Loss values')
+plt.legend(['train_loss', 'valid_loss'])
+plt.xlim(0, n)
+plt.grid(True)
+
+# Accuracy values plot
+plt.figure(num=2)
+plt.plot(Acc, 'b')
+plt.plot(Acc_val, 'r')
+plt.title('Accuracy per epochs')
+plt.xlabel('number of epochs')
+plt.ylabel('Accuracy values')
+plt.legend(['train_Accuracy', 'valid_Accuracy'])
+plt.xlim(0, n)
+plt.grid(True)
+
+
+#%% saving model
+
+# =============================================================================
+# EO_Oxidation_model.save('Example   C:\...\...\Model\EO_Oxidation')
+# =============================================================================
