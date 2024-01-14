@@ -24,7 +24,7 @@ Rg = 8.314    # J/(mol.K) general gas constant
 # Feed data
 P0  = 2.2                 # Feed pressure, Mpas
 T0  = 190 + 273.15        # Feed temperature, °K
-Ft0 = 0.9 * 1e-03         # kmol/s, feed molar flow rate per tube
+Ft0 = 0.9 * 1e-03         # kmol/s, feed molar flow rate per tube (number of Tubes = 1)
 
 # Reactor data
 Di = 32e-03               # Tube inner_diameter,m
