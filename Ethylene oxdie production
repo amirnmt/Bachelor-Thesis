@@ -1,0 +1,190 @@
+# -*- coding: utf-8 -*-
+"""
+Calculating Steady state solution for mass balance equation of Ethylene Oxide Homogeneous Reactor
+
+Ethylene Oxide Production
+
+C2H4 + 0.5 O2 --> C2H4O                 Delta H1 = -105.39  kj/mole base on: ethylene
+C2H4 + 3 O2   --> 2 CO2 + 2 H2O         Delta H2 = -1321.73 kj/mole base on: ethylene
+
+"""
+
+# %% import libraries
+
+from scipy.integrate import solve_ivp
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+# %% Model Paremeters
+
+# gas constant
+Rg = 8.314    # J/(mol.K) general gas constant
+  
+# Feed data
+P0  = 2.2                 # Feed pressure, Mpas
+T0  = 190 + 273.15        # Feed temperature, °K
+Ft0 = 0.9 * 1e-03         # kmol/s, feed molar flow rate per tube
+
+# Reactor data
+Di = 32e-03               # Tube inner_diameter,m
+L  = 9                    # Tube length,m
+Ac = np.pi * (Di**2) / 4  # Tube cross-section area, m^2
+
+# Catalyst data
+epsb = 0.5                # catalyst bulk porosity
+rhob = 450                # catalyst bulk density, kg/m3
+
+# mole frac in the feed
+y_c2h40   = 0.25
+y_o20     = 0.08    
+y_c2h4o0  = 0.0001
+y_co20    = 0.07
+y_h2o0    = 0.0025
+y_ch40    = 0.4703
+y_n20     = 0.1271
+
+# mole fraction of inerts (Ch4+N2) in the feed
+y_inert= 1 - (y_c2h40 + y_o20 + y_c2h4o0 + y_co20 + y_h2o0)  
+
+# Creating list of initial feed mole fractions
+y_ini = [y_c2h40, y_o20, y_c2h4o0, y_co20, y_h2o0, y_ch40, y_n20]   
+
+# Concentration of EDC in the reactor, ppm
+C_EDC = 0.4                             
+
+# some calculation on feed
+F_C2H40   = y_c2h40  * Ft0    # kmol/s, Ethylene
+F_O20     = y_o20    * Ft0    # kmol/s, Oxygen
+F_C2H4O0  = y_c2h4o0 * Ft0    # kmol/s, Ethylene Oxide
+F_CO20    = y_co20   * Ft0    # kmol/s, Carbon dioxide 
+F_H2O0    = y_h2o0   * Ft0    # kmol/s, Water
+F_Ch40    = y_ch40   * Ft0    # kmol/s, Methane
+F_N20     = y_n20    * Ft0    # kmol/s, Nitrogen
+F_inert   = y_inert  * Ft0    # kmol/s, Feed inerts
+
+
+#%% defining the reaction rates
+
+def rxn_rates(Pp, T, C_EDC):
+    """ rx_rates implements the ethylene oxidation
+    """
+    import numpy as np
+    
+    # T, temperature, K
+    # Pp, partial pressure, Mpa
+    # C_EDC is the Concentration of EDC, ppm  
+    
+    # gas constant
+    R = 8.314 * 1e-03     # kJ/(mol.K) general gas constant
+    
+    # pre-exponential factor, kgmol/s.kgcat
+    k = [3.1574e+04, 3.2587e+05]
+    
+    # adsorption constant, Mpas^-1
+    K = [3.8414e-10, 9.5961e-16]
+    
+    # activation energies, kj/mol
+    E = [69.49, 81.77]            
+    
+    # heat of adsorption, kj/mol
+    deltaH = [79.92, 134.10]      
+    
+    # coefficient of EDC inhibition, 1/ppm
+    e = [1.6928, 2.3765]         
+    
+    
+    # Component partial pressure, Mpa
+    P_c2h4   = Pp[0]   # Ethylene
+    P_o2     = Pp[1]   # Oxygen
+    P_co2    = Pp[2]   # Carbon dioxide
+    P_h2o    = Pp[3]   # water
+
+
+    Den = K[0] * np.exp(deltaH[0]/(R*T)) * P_co2 + K[1] * np.exp(deltaH[1]/(R*T)) * (P_o2**0.5) * P_h2o
+
+    # reaction equation, kmol/kg.s
+    r_eo0  = k[0] * np.exp(-E[0]/(R*T)) * P_c2h4 * P_o2        / (1 + Den)
+    r_co20 = k[1] * np.exp(-E[1]/(R*T)) * P_c2h4 * P_o2**0.75  / (1 + Den)
+    
+    
+    # Implementing EDC effect on reactions
+    r_eo  = r_eo0  / (1 + e[0] * C_EDC)
+    r_co2 = r_co20 / (1 + e[1] * C_EDC)
+    
+    return (r_eo, r_co2)
+
+
+# %% Define Fbr
+# Part 2 
+# Define the packed-bed Reactor function for Mass_balance steady state solution.
+# Based on static pressure and temperature along the reactor length. 
+
+def fbr(L, u):
+    
+    # Packed bed reactor equations (mass balance based on: steady state, effectiveness factor = 1, fresh catalyst activation function=1)
+    F_c2h4   = u[0]   # Ethylene, kmole/s
+    F_o2     = u[1]   # Oxygen, kmole/s
+    F_c2h4o  = u[2]   # Ethylene oxide, kmole/s
+    F_co2    = u[3]   # CO2, kmole/s
+    F_h2o    = u[4]   # H2O, kmole/s
+    
+    # kmole/s, total molar flowrate
+    Ft = F_c2h4 + F_o2 + F_c2h4o + F_co2 + F_h2o + F_inert  
+    
+    # calculating partial pressures
+    P_c2h4 = (F_c2h4 /Ft)  * P0       # Ethylene partial press, MPa
+    P_o2   = (F_o2   /Ft)  * P0       # Oxygen partial press, MPa
+    P_co2  = (F_co2  /Ft)  * P0       # CO2 partial press, MPa
+    P_h2o  = (F_h2o  /Ft)  * P0       # H2O partial press, MPa
+    
+    Pp = [P_c2h4, P_o2, P_co2, P_h2o]
+    
+    # r = kmol/kgcat.s
+    r_eo, r_co2 = rxn_rates(Pp, T0, C_EDC)   
+    
+    coef = Ac * rhob                         # m^2 * kg/m^3/m
+    
+    # df/dz kmol/(m.s) base on eo and co2
+    rhs = [
+           coef * (-r_eo + -1/2*r_co2),      # df_c2h4dz
+           coef * (-0.5*r_eo + -3/2*r_co2),  # df_o2dz
+           coef * (r_eo),                    # df_c2h4odz
+           coef * (r_co2),                   # df_co2dz
+           coef * (r_co2)                    # df_h2odz
+           ]
+    
+    return rhs
+
+
+# %% Solving ODE
+
+# initial conditions
+# flowrate, kmole/s
+ic = [F_C2H40, F_O20, F_C2H4O0, F_CO20, F_H2O0]   
+
+# integration interval, Length of the Reactor, m
+Lspan = [0, L] 
+               
+# Call the ODE Solver
+sol = solve_ivp(fbr, Lspan, ic,  dense_output=True,
+                method="RK45")
+
+if sol.status == 1:
+    print('Success, termination event occured.')
+if sol.status == 0:
+    print('Success, t end reached.')
+
+
+# Generate solutions at more Points
+Ls = np.linspace(0, L, 100)
+u = sol.sol(Ls)
+
+# # plot results
+plt.plot(Ls, 1000*np.transpose(u))
+plt.title('Molarflow per reactor length')
+plt.xlabel('Reactor length (m)')
+plt.ylabel('Components molarflow (mole/s)')
+plt.axis([0, L, 0, F_C2H40*1000+0.01])
+plt.legend(['C2H4', 'O2', 'C2H4O', 'CO2', 'H2O'])
+plt.show()
